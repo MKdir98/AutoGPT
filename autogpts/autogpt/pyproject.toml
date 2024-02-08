@@ -18,6 +18,7 @@ packages = [{ include = "autogpt" }]
 [tool.poetry.scripts]
 autogpt = "autogpt.app.cli:cli"
 serve = "autogpt.app.cli:serve"
+jupyter = "autogpt.app.jupyter:run"
 
 
 [tool.poetry.dependencies]
@@ -64,6 +65,7 @@ spacy = "^3.0.0"
 tenacity = "^8.2.2"
 tiktoken = "^0.5.0"
 webdriver-manager = "*"
+notebook = "6.5.6"
 
 # OpenAI and Generic plugins import
 openapi-python-client = "^0.14.0"
