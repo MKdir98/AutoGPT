@@ -1,4 +1,5 @@
 """Configuration class to store the state of bools for different scripts access."""
+
 from __future__ import annotations
 
 import os
@@ -19,6 +20,9 @@ from autogpt.core.configuration.schema import (
 from autogpt.core.resource.model_providers.openai import (
     OPEN_AI_CHAT_MODELS,
     OpenAICredentials,
+)
+from autogpt.core.resource.model_providers.hugging_chat import (
+    HuggingChatCredentials,
 )
 from autogpt.file_workspace import FileWorkspaceBackendName
 from autogpt.logs.config import LoggingConfig
@@ -60,9 +64,11 @@ class Config(SystemSettings, arbitrary_types_allowed=True):
     # Workspace
     workspace_backend: FileWorkspaceBackendName = UserConfigurable(
         default=FileWorkspaceBackendName.LOCAL,
-        from_env=lambda: FileWorkspaceBackendName(v)
-        if (v := os.getenv("WORKSPACE_BACKEND"))
-        else None,
+        from_env=lambda: (
+            FileWorkspaceBackendName(v)
+            if (v := os.getenv("WORKSPACE_BACKEND"))
+            else None
+        ),
     )
 
     ##########################
@@ -218,6 +224,7 @@ class Config(SystemSettings, arbitrary_types_allowed=True):
     ###############
     # OpenAI
     openai_credentials: Optional[OpenAICredentials] = None
+    hugging_chat_credentials: Optional[HuggingChatCredentials] = None
     azure_config_file: Optional[Path] = UserConfigurable(
         default=AZURE_CONFIG_FILE,
         from_env=lambda: Path(f) if (f := os.getenv("AZURE_CONFIG_FILE")) else None,
@@ -298,35 +305,66 @@ class ConfigBuilder(Configurable[Config]):
 
 
 def assert_config_has_openai_api_key(config: Config) -> None:
-    """Check if the OpenAI API key is set in config.py or as an environment variable."""
-    if not config.openai_credentials:
+    """Check if the Bard cookie is set in config.py or as an environment variable."""
+    if not config.hugging_chat_credentials:
         print(
             Fore.RED
-            + "Please set your OpenAI API key in .env or as an environment variable."
+            + "Please set your Hugging chat username and password in .env or as an environment variable."
             + Fore.RESET
         )
-        print("You can get your key from https://platform.openai.com/account/api-keys")
-        openai_api_key = input(
-            "If you do have the key, please enter your OpenAI API key now:\n"
+        print("You can get cookie from your browser")
+        username = input(
+            "If you do have the username, please enter your hugging chat username now:\n"
+        )
+        password = input(
+            "If you do have the password, please enter your hugging chat password now:\n"
         )
         key_pattern = r"^sk-\w{48}"
-        openai_api_key = openai_api_key.strip()
-        if re.search(key_pattern, openai_api_key):
-            os.environ["OPENAI_API_KEY"] = openai_api_key
-            config.openai_credentials = OpenAICredentials(
-                api_key=SecretStr(openai_api_key)
-            )
-            print(
-                Fore.GREEN
-                + "OpenAI API key successfully set!\n"
-                + Fore.YELLOW
-                + "NOTE: The API key you've set is only temporary.\n"
-                + "For longer sessions, please set it in .env file"
-                + Fore.RESET
-            )
-        else:
-            print("Invalid OpenAI API key!")
-            exit(1)
+        username = username.strip()
+        password = password.strip()
+        os.environ["HUGGING_CHAT_USERNAME"] = username
+        os.environ["HUGGING_CHAT_PASSWORD"] = password
+        config.bard_credentials = HuggingChatCredentials(
+            username=SecretStr(username),
+            password=SecretStr(password),
+        )
+        print(
+            Fore.GREEN
+            + "Bard cookie successfully set!\n"
+            + Fore.YELLOW
+            + "NOTE: The cookie you've set is only temporary.\n"
+            + "For longer sessions, please set it in .env file"
+            + Fore.RESET
+        )
+    # """Check if the OpenAI API key is set in config.py or as an environment variable."""
+    # if not config.openai_credentials:
+    #     print(
+    #         Fore.RED
+    #         + "Please set your OpenAI API key in .env or as an environment variable."
+    #         + Fore.RESET
+    #     )
+    #     print("You can get your key from https://platform.openai.com/account/api-keys")
+    #     openai_api_key = input(
+    #         "If you do have the key, please enter your OpenAI API key now:\n"
+    #     )
+    #     key_pattern = r"^sk-\w{48}"
+    #     openai_api_key = openai_api_key.strip()
+    #     if re.search(key_pattern, openai_api_key):
+    #         os.environ["OPENAI_API_KEY"] = openai_api_key
+    #         config.openai_credentials = OpenAICredentials(
+    #             api_key=SecretStr(openai_api_key)
+    #         )
+    #         print(
+    #             Fore.GREEN
+    #             + "OpenAI API key successfully set!\n"
+    #             + Fore.YELLOW
+    #             + "NOTE: The API key you've set is only temporary.\n"
+    #             + "For longer sessions, please set it in .env file"
+    #             + Fore.RESET
+    #         )
+    #     else:
+    #         print("Invalid OpenAI API key!")
+    #         exit(1)
 
 
 def _safe_split(s: Union[str, None], sep: str = ",") -> list[str]:

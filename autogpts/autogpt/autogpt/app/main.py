@@ -31,6 +31,7 @@ from autogpt.config import (
     assert_config_has_openai_api_key,
 )
 from autogpt.core.resource.model_providers.openai import OpenAIProvider
+from autogpt.core.resource.model_providers.hugging_chat import HuggingChatProvider
 from autogpt.core.runner.client_lib.utils import coroutine
 from autogpt.logs.config import configure_chat_plugins, configure_logging
 from autogpt.logs.helpers import print_attribute, speak
@@ -106,7 +107,8 @@ async def run_auto_gpt(
         tts_config=config.tts_config,
     )
 
-    llm_provider = _configure_openai_provider(config)
+    # llm_provider = _configure_openai_provider(config)
+    llm_provider = _configure_hugging_chat_provider(config)
 
     logger = logging.getLogger(__name__)
 
@@ -353,7 +355,7 @@ async def run_auto_gpt_server(
         tts_config=config.tts_config,
     )
 
-    llm_provider = _configure_openai_provider(config)
+    llm_provider = _configure_hugging_chat_provider(config)
 
     if install_plugin_deps:
         install_plugin_dependencies()
@@ -376,25 +378,43 @@ async def run_auto_gpt_server(
         f"${round(sum(b.total_cost for b in server._task_budgets.values()), 2)}"
     )
 
-
-def _configure_openai_provider(config: Config) -> OpenAIProvider:
-    """Create a configured OpenAIProvider object.
+def _configure_hugging_chat_provider(config: Config) -> HuggingChatProvider:
+    """Create a configured HuggingChatProvider object.
 
     Args:
         config: The program's configuration.
 
     Returns:
-        A configured OpenAIProvider object.
+        A configured HuggingChatProvider object.
     """
-    if config.openai_credentials is None:
-        raise RuntimeError("OpenAI key is not configured")
+    if config.hugging_chat_credentials is None:
+        raise RuntimeError("hugging chat username and password is not configured")
 
-    openai_settings = OpenAIProvider.default_settings.copy(deep=True)
-    openai_settings.credentials = config.openai_credentials
-    return OpenAIProvider(
-        settings=openai_settings,
-        logger=logging.getLogger("OpenAIProvider"),
+    hugging_chat_settings = HuggingChatProvider.default_settings.copy(deep=True)
+    hugging_chat_settings.credentials = config.hugging_chat_credentials
+    return HuggingChatProvider(
+        settings=hugging_chat_settings,
+        logger=logging.getLogger("HuggingChatProvider"),
     )
+
+# def _configure_openai_provider(config: Config) -> OpenAIProvider:
+#     """Create a configured OpenAIProvider object.
+
+#     Args:
+#         config: The program's configuration.
+
+#     Returns:
+#         A configured OpenAIProvider object.
+#     """
+#     if config.openai_credentials is None:
+#         raise RuntimeError("OpenAI key is not configured")
+
+#     openai_settings = OpenAIProvider.default_settings.copy(deep=True)
+#     openai_settings.credentials = config.openai_credentials
+#     return OpenAIProvider(
+#         settings=openai_settings,
+#         logger=logging.getLogger("OpenAIProvider"),
+#     )
 
 
 def _get_cycle_budget(continuous_mode: bool, continuous_limit: int) -> int | float:

@@ -29,7 +29,8 @@ class NameAndGoals(PromptStrategy):
         "You should supply a role-based name for the agent, "
         "an informative description for what the agent does, and "
         "1 to 5 goals that are optimally aligned with the successful completion of "
-        "its assigned task.\n"
+        "its assigned task. Your call should be in json array format without any extra "
+        "before and after that. your call will parse with json.loads. So it's important it should be pars to json.\n"
         "\n"
         "Example Input:\n"
         '"""Help me with marketing my business"""\n\n'
