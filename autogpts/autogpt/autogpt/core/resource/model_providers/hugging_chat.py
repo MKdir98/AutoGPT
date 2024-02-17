@@ -373,9 +373,9 @@ class HuggingChatProvider(
         while True:
             if self.chatbot is None:
                 sign = Login(self._credentials.email.get_secret_value(), self._credentials.password.get_secret_value())
-                cookies = sign.loadCookiesFromDir("/home/mahdi/all/repositories/github.com/autogpt/AutoGPT/")
-                # cookies = sign.login()
-                # sign.saveCookiesToDir("/home/mahdi/all/repositories/github.com/autogpt/AutoGPT/")
+                # cookies = sign.loadCookiesFromDir("/home/mahdi/all/repositories/github.com/autogpt/AutoGPT/")
+                cookies = sign.login()
+                sign.saveCookiesToDir("/home/mahdi/all/repositories/github.com/autogpt/AutoGPT/")
                 self.chatbot = hugchat.ChatBot(cookies=cookies.get_dict(), default_llm=0) 
             hugging_chatPrompt = ""
             for message in model_prompt:
