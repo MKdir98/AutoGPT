@@ -26,6 +26,18 @@ class AgentManager:
                 agent_dirs.append(file_path.parent.name)
         return agent_dirs
 
+    def list_agent_group_leaders(self) -> list[str]:
+        """Return all agent directories within storage where boss_id is null."""
+        agent_dirs: list[str] = []
+        for dir in self.file_manager.list_folders():
+            state_file = dir / "state.json"
+            if self.file_manager.exists(state_file):
+                with open(state_file, 'r') as f:
+                    state = json.load(f)
+                    if state.get('boss_id') is None:
+                        agent_dirs.append(dir.name)
+        return agent_dirs
+
     def get_agent_dir(self, agent_id: str) -> Path:
         """Return the directory of the agent with the given ID."""
         assert len(agent_id) > 0
@@ -44,3 +56,12 @@ class AgentManager:
 
         state = self.file_manager.read_file(state_file_path)
         return AgentSettings.parse_raw(state)
+
+    def load_agent_member_state(self, agent_id: str) -> AgentMemberSettings:
+        """Load the state of the agent with the given ID."""
+        state_file_path = Path(agent_id) / "state.json"
+        if not self.file_manager.exists(state_file_path):
+            raise FileNotFoundError(f"Agent with ID '{agent_id}' has no state.json")
+
+        state = self.file_manager.read_file(state_file_path)
+        return AgentMemberSettings.parse_raw(state)
