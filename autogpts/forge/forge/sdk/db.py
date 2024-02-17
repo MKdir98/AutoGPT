@@ -6,7 +6,7 @@ IT IS NOT ADVISED TO USE THIS IN PRODUCTION!
 
 import datetime
 import math
-import uuid
+from uuid import uuid4
 from typing import Any, Dict, List, Literal, Optional, Tuple
 
 from sqlalchemy import (
@@ -23,7 +23,7 @@ from sqlalchemy.orm import DeclarativeBase, joinedload, relationship, sessionmak
 
 from .errors import NotFoundError
 from .forge_log import ForgeLogger
-from .model import Artifact, Pagination, Status, Step, StepRequestBody, Task
+from .model import AgentTask, Artifact, Pagination, Status, Step, StepRequestBody, Task
 
 LOG = ForgeLogger(__name__)
 
@@ -44,6 +44,24 @@ class TaskModel(Base):
     )
 
     artifacts = relationship("ArtifactModel", back_populates="task")
+
+class AgentTaskModel(Base):
+    __tablename__ = "agent_tasks"
+
+    task_id = Column(String, primary_key=True, index=True)
+    input = Column(String)
+    additional_input = Column(JSON)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    modified_at = Column(
+        DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow
+    )
+
+    artifacts = relationship("ArtifactModel", back_populates="agent_task")
+    father_task_id = Column(String, ForeignKey("agent_tasks.task_id"))
+    # the statuses can be of theses [DOING, CHECKING, REJECTED, DONE]
+    status = Column(String)
+    sub_tasks = relationship("AgentTaskModel", back_populates="father_task", remote_side=[father_task_id])
+    father_task = relationship("AgentTaskModel", back_populates="sub_tasks", remote_side=[task_id])
 
 
 class StepModel(Base):
@@ -71,6 +89,7 @@ class ArtifactModel(Base):
 
     artifact_id = Column(String, primary_key=True, index=True)
     task_id = Column(String, ForeignKey("tasks.task_id"))
+    agent_task_id = Column(String, ForeignKey("agent_tasks.task_id"))
     step_id = Column(String, ForeignKey("steps.step_id"))
     agent_created = Column(Boolean, default=False)
     file_name = Column(String)
@@ -82,6 +101,7 @@ class ArtifactModel(Base):
 
     step = relationship("StepModel", back_populates="artifacts")
     task = relationship("TaskModel", back_populates="artifacts")
+    agent_task = relationship("AgentTaskModel", back_populates="artifacts")
 
 
 def convert_to_task(task_obj: TaskModel, debug_enabled: bool = False) -> Task:
@@ -97,6 +117,22 @@ def convert_to_task(task_obj: TaskModel, debug_enabled: bool = False) -> Task:
         artifacts=task_artifacts,
     )
 
+def convert_to_agent_task(task_obj: AgentTaskModel, debug_enabled: bool = False) -> AgentTask:
+    if debug_enabled:
+        LOG.debug(f"Converting AgentTaskModel to AgentTask for task_id: {task_obj.task_id}")
+    task_artifacts = [convert_to_artifact(artifact) for artifact in task_obj.artifacts]
+    return AgentTask(
+        task_id=task_obj.task_id,
+        created_at=task_obj.created_at,
+        modified_at=task_obj.modified_at,
+        input=task_obj.input,
+        additional_input=task_obj.additional_input,
+        artifacts=task_artifacts,
+        father_task_id=task_obj.father_task_id,
+        status=task_obj.status,
+        father_task=task_obj.father_task,
+        sub_tasks=task_obj.sub_tasks,
+    )
 
 def convert_to_step(step_model: StepModel, debug_enabled: bool = False) -> Step:
     if debug_enabled:
@@ -142,6 +178,36 @@ class AgentDB:
         self.engine = create_engine(database_string)
         Base.metadata.create_all(self.engine)
         self.Session = sessionmaker(bind=self.engine)
+
+    async def create_agent_task(
+            self, input: Optional[str], additional_input: Optional[dict] = {}, father_task_id: Optional[str] = None, status: str = "DOING",
+    ) -> AgentTask:
+        if self.debug_enabled:
+            LOG.debug("Creating new task")
+
+        try:
+            with self.Session() as session:
+                new_task = AgentTaskModel(
+                    task_id=str(uuid4()),
+                    input=input,
+                    additional_input=additional_input if additional_input else {},
+                    father_task_id=father_task_id,
+                    status=status,
+                )
+                session.add(new_task)
+                session.commit()
+                session.refresh(new_task)
+                if self.debug_enabled:
+                    LOG.debug(f"Created new agent task with task_id: {new_task.task_id}")
+                return convert_to_agent_task(new_task, self.debug_enabled)
+        except SQLAlchemyError as e:
+            LOG.error(f"SQLAlchemy error while creating agent_task: {e}")
+            raise
+        except NotFoundError as e:
+            raise
+        except Exception as e:
+            LOG.error(f"Unexpected error while creating agent_task: {e}")
+            raise
 
     async def create_task(
         self, input: Optional[str], additional_input: Optional[dict] = {}

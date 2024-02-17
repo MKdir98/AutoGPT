@@ -103,6 +103,19 @@ class Task(TaskRequestBody):
         ],
     )
 
+class AgentTaskStatus(Enum):
+    INITIAL = "INITIAL"
+    DOING = "DOING"
+    CHECKING = "CHECKING"
+    REJECTED = "REJECTED"
+    DONE = "DONE"
+
+class AgentTask(Task):
+    father_task_id: Optional[str]
+    status: AgentTaskStatus
+    father_task: Optional[AgentTask]
+    sub_tasks: list[AgentTask]
+
 
 class StepRequestBody(BaseModel):
     name: Optional[str] = Field(

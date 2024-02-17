@@ -5,6 +5,8 @@ import logging
 import time
 from datetime import datetime
 from typing import TYPE_CHECKING, Optional
+from autogpt.core.configuration.schema import SystemConfiguration
+from autogpt.core.prompting.base import PromptStrategy
 
 if TYPE_CHECKING:
     from autogpt.config import Config
@@ -62,7 +64,7 @@ class AgentConfiguration(BaseAgentConfiguration):
 
 class AgentSettings(BaseAgentSettings):
     config: AgentConfiguration = Field(default_factory=AgentConfiguration)
-    prompt_config: OneShotAgentPromptConfiguration = Field(
+    prompt_config: SystemConfiguration = Field(
         default_factory=(
             lambda: OneShotAgentPromptStrategy.default_configuration.copy(deep=True)
         )
@@ -83,7 +85,7 @@ class Agent(
         description=__doc__,
     )
 
-    prompt_strategy: OneShotAgentPromptStrategy
+    prompt_strategy: PromptStrategy
 
     def __init__(
         self,
