@@ -5,6 +5,7 @@ import logging
 import time
 from datetime import datetime
 from typing import TYPE_CHECKING, Optional
+from autogpt.agents.prompt_strategies.divide_and_conquer import DivideAndConquerAgentPromptStrategy
 from autogpt.core.configuration.schema import SystemConfiguration
 from autogpt.core.prompting.base import PromptStrategy
 
@@ -45,7 +46,6 @@ from .features.context import ContextMixin
 from .features.file_workspace import FileWorkspaceMixin
 from .features.watchdog import WatchdogMixin
 from .prompt_strategies.one_shot import (
-    OneShotAgentPromptConfiguration,
     OneShotAgentPromptStrategy,
 )
 from .utils.exceptions import (
@@ -66,7 +66,7 @@ class AgentSettings(BaseAgentSettings):
     config: AgentConfiguration = Field(default_factory=AgentConfiguration)
     prompt_config: SystemConfiguration = Field(
         default_factory=(
-            lambda: OneShotAgentPromptStrategy.default_configuration.copy(deep=True)
+            lambda: DivideAndConquerAgentPromptStrategy.default_configuration.copy(deep=True)
         )
     )
 

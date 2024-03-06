@@ -84,6 +84,7 @@ class AgentMember(Agent):
         config.memory_backend = "no_memory"
 
         commands = copy.deepcopy(COMMAND_CATEGORIES)
+        commands.remove("autogpt.commands.system")
         if create_agent:
             commands.append("autogpt.commands.create_agent")
         else:
