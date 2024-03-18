@@ -45,6 +45,8 @@ class ModelProviderService(str, enum.Enum):
 class ModelProviderName(str, enum.Enum):
     OPENAI = "openai"
     ANTHROPIC = "anthropic"
+    HUGGINGCHAT = "huggingchat"
+    GPT4FREE = "gpt4free"
 
 
 class ChatMessage(BaseModel):
@@ -89,7 +91,7 @@ class AssistantFunctionCallDict(TypedDict):
 
 
 class AssistantToolCall(BaseModel):
-    id: str
+    # id: str
     type: Literal["function"]
     function: AssistantFunctionCall
 

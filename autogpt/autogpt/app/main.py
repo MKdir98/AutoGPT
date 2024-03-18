@@ -99,7 +99,7 @@ async def run_auto_gpt(
     )
 
     # TODO: fill in llm values here
-    assert_config_has_openai_api_key(config)
+    # assert_config_has_openai_api_key(config)
 
     await apply_overrides_to_config(
         config=config,
@@ -113,7 +113,7 @@ async def run_auto_gpt(
         skip_news=skip_news,
     )
 
-    llm_provider = _configure_llm_provider(config)
+    llm_provider = _configure_gpt_4_free_provider(config)
 
     logger = logging.getLogger(__name__)
 
@@ -368,7 +368,7 @@ async def run_auto_gpt_server(
     )
 
     # TODO: fill in llm values here
-    assert_config_has_openai_api_key(config)
+    # assert_config_has_openai_api_key(config)
 
     await apply_overrides_to_config(
         config=config,
@@ -378,7 +378,7 @@ async def run_auto_gpt_server(
         allow_downloads=allow_downloads,
     )
 
-    llm_provider = _configure_llm_provider(config)
+    llm_provider = _configure_gpt_4_free_provider(config)
 
     # Set up & start server
     database = AgentDB(
@@ -402,21 +402,50 @@ async def run_auto_gpt_server(
 def _configure_openai_provider(config: Config) -> OpenAIProvider:
     """Create a configured OpenAIProvider object.
 
+# def _configure_llm_provider(config: Config) -> MultiProvider:
+#     multi_provider = MultiProvider()
+#     for model in [config.smart_llm, config.fast_llm]:
+#         # Ensure model providers for configured LLMs are available
+#         multi_provider.get_model_provider(model)
+#     return multi_provider
+
+def _configure_gpt_4_free_provider(config: Config) -> GPT4FreeProvider:
+    """Create a configured HuggingChatProvider object.
+
     Args:
         config: The program's configuration.
 
     Returns:
         A configured OpenAIProvider object.
     """
-    if config.openai_credentials is None:
-        raise RuntimeError("OpenAI key is not configured")
+    # if config.hugging_chat_credentials is None:
+    #     raise RuntimeError("hugging chat username and password is not configured")
 
-    openai_settings = OpenAIProvider.default_settings.copy(deep=True)
-    openai_settings.credentials = config.openai_credentials
-    return OpenAIProvider(
-        settings=openai_settings,
-        logger=logging.getLogger("OpenAIProvider"),
+    gpt4free_chat_settings = GPT4FreeProvider.default_settings.copy(deep=True)
+    # gpt4free_chat_settings.credentials = config.hugging_chat_credentials
+    return GPT4FreeProvider(
+        settings=gpt4free_chat_settings,
+        logger=logging.getLogger("HuggingChatProvider"),
     )
+
+# def _configure_openai_provider(config: Config) -> OpenAIProvider:
+#     """Create a configured OpenAIProvider object.
+
+#     Args:
+#         config: The program's configuration.
+
+#     Returns:
+#         A configured OpenAIProvider object.
+#     """
+#     if config.openai_credentials is None:
+#         raise RuntimeError("OpenAI key is not configured")
+
+#     openai_settings = OpenAIProvider.default_settings.copy(deep=True)
+#     openai_settings.credentials = config.openai_credentials
+#     return OpenAIProvider(
+#         settings=openai_settings,
+#         logger=logging.getLogger("OpenAIProvider"),
+#     )
 
 
 def _get_cycle_budget(continuous_mode: bool, continuous_limit: int) -> int | float:

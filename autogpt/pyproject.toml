@@ -63,6 +63,14 @@ agbenchmark = { path = "../benchmark", optional = true }
 google-cloud-logging = "^3.8.0"
 google-cloud-storage = "^2.13.0"
 psycopg2-binary = "^2.9.9"
+g4f = "^0.3.1.0"
+nest-asyncio = "^1.6.0"
+curl-cffi = "^0.6.2"
+platformdirs = "^4.2.0"
+brotli = "^1.1.0"
+undetected-chromedriver = "^3.5.5"
+pyexecjs = "^1.5.1"
+nodriver = "^0.28rc1"
 
 [tool.poetry.extras]
 benchmark = ["agbenchmark"]
