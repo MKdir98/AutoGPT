@@ -70,21 +70,32 @@ async def apply_overrides_to_config(
     if continuous_limit and not continuous:
         raise click.UsageError("--continuous-limit can only be used with --continuous")
 
-    # Set the default LLM models
-    if gpt3only:
-        # --gpt3only should always use gpt-3.5-turbo, despite user's FAST_LLM config
-        config.fast_llm = GPT_3_MODEL
-        config.smart_llm = GPT_3_MODEL
-    elif (
-        gpt4only
-        and (await check_model(GPT_4_MODEL, model_type="smart_llm")) == GPT_4_MODEL
-    ):
-        # --gpt4only should always use gpt-4, despite user's SMART_LLM config
-        config.fast_llm = GPT_4_MODEL
-        config.smart_llm = GPT_4_MODEL
-    else:
-        config.fast_llm = await check_model(config.fast_llm, "fast_llm")
-        config.smart_llm = await check_model(config.smart_llm, "smart_llm")
+
+
+    # # Set the default LLM models
+    # if gpt3only:
+    #     # --gpt3only should always use gpt-3.5-turbo, despite user's FAST_LLM config
+    #     config.fast_llm = GPT_3_MODEL
+    #     config.smart_llm = GPT_3_MODEL
+    # elif (
+    #     gpt4only
+    #     and check_model(
+    #         GPT_4_MODEL,
+    #         model_type="smart_llm",
+    #         api_credentials=config.openai_credentials,
+    #     )
+    #     == GPT_4_MODEL
+    # ):
+    #     # --gpt4only should always use gpt-4, despite user's SMART_LLM config
+    #     config.fast_llm = GPT_4_MODEL
+    #     config.smart_llm = GPT_4_MODEL
+    # else:
+    #     config.fast_llm = check_model(
+    #         config.fast_llm, "fast_llm", api_credentials=config.openai_credentials
+    #     )
+    #     config.smart_llm = check_model(
+    #         config.smart_llm, "smart_llm", api_credentials=config.openai_credentials
+    #     )
 
     if memory_type:
         supported_memory = get_supported_memory_backends()
