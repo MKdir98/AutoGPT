@@ -38,6 +38,7 @@ class ModelProviderService(str, enum.Enum):
 
 class ModelProviderName(str, enum.Enum):
     OPENAI = "openai"
+    OLLAMA = "ollama"
 
 
 class ChatMessage(BaseModel):
@@ -79,7 +80,7 @@ class AssistantFunctionCallDict(TypedDict):
 
 
 class AssistantToolCall(BaseModel):
-    id: str
+    # id: str
     type: Literal["function"]
     function: AssistantFunctionCall
 

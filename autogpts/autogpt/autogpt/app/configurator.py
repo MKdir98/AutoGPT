@@ -83,8 +83,8 @@ async def apply_overrides_to_config(
         config.fast_llm = GPT_4_MODEL
         config.smart_llm = GPT_4_MODEL
     else:
-        config.fast_llm = await check_model(config.fast_llm, "fast_llm")
-        config.smart_llm = await check_model(config.smart_llm, "smart_llm")
+        config.fast_llm = GPT_4_MODEL
+        config.smart_llm = GPT_4_MODEL
 
     if memory_type:
         supported_memory = get_supported_memory_backends()

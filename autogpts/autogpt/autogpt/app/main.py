@@ -35,6 +35,7 @@ from autogpt.config import (
     assert_config_has_openai_api_key,
 )
 from autogpt.core.resource.model_providers.openai import OpenAIProvider
+from autogpt.core.resource.model_providers.ollama import OllamaProvider
 from autogpt.core.runner.client_lib.utils import coroutine
 from autogpt.file_storage import FileStorageBackendName, get_storage
 from autogpt.logs.config import configure_logging
@@ -105,7 +106,7 @@ async def run_auto_gpt(
     )
 
     # TODO: fill in llm values here
-    assert_config_has_openai_api_key(config)
+    # assert_config_has_openai_api_key(config)
 
     await apply_overrides_to_config(
         config=config,
@@ -121,7 +122,7 @@ async def run_auto_gpt(
         skip_news=skip_news,
     )
 
-    llm_provider = _configure_openai_provider(config)
+    llm_provider = _configure_ollama_provider(config)
 
     logger = logging.getLogger(__name__)
 
@@ -387,7 +388,7 @@ async def run_auto_gpt_server(
     )
 
     # TODO: fill in llm values here
-    assert_config_has_openai_api_key(config)
+    # assert_config_has_openai_api_key(config)
 
     await apply_overrides_to_config(
         config=config,
@@ -398,7 +399,7 @@ async def run_auto_gpt_server(
         allow_downloads=allow_downloads,
     )
 
-    llm_provider = _configure_openai_provider(config)
+    llm_provider = _configure_ollama_provider(config)
 
     # Set up & start server
     database = AgentDB(
@@ -439,6 +440,18 @@ def _configure_openai_provider(config: Config) -> OpenAIProvider:
         logger=logging.getLogger("OpenAIProvider"),
     )
 
+def _configure_ollama_provider(config: Config) -> OllamaProvider:
+    """Create a configured OllamaProvider object.
+
+    Args:
+        config: The program's configuration.
+
+    Returns:
+        A configured OllamaProvider object.
+    """
+    return OllamaProvider(
+        logger=logging.getLogger("OllamaProvider"),
+    )
 
 def _get_cycle_budget(continuous_mode: bool, continuous_limit: int) -> int | float:
     # Translate from the continuous_mode/continuous_limit config
