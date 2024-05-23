@@ -58,8 +58,6 @@ async def apply_overrides_to_config(
     if continuous_limit and not continuous:
         raise click.UsageError("--continuous-limit can only be used with --continuous")
 
-
-
     # # Set the default LLM models
     # if gpt3only:
     #     # --gpt3only should always use gpt-3.5-turbo, despite user's FAST_LLM config

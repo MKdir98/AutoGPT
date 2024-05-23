@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from forge.sdk.model import TaskRequestBody 
+from forge.sdk.model import TaskRequestBody
 from autogpt.command_decorator import command
 from autogpt.agents.agent_member import AgentMember
 from autogpt.core.utils.json_schema import JSONSchema
 
 COMMAND_CATEGORY = "request_agent"
 COMMAND_CATEGORY_TITLE = "Request an agent"
+
 
 @command(
     "request_agent",
@@ -31,7 +32,9 @@ COMMAND_CATEGORY_TITLE = "Request an agent"
         ),
     },
 )
-async def request_agent(prompt: str, role:str, agent: AgentMember, boss_id: str) -> str:
+async def request_agent(
+    prompt: str, role: str, agent: AgentMember, boss_id: str
+) -> str:
     """Request new agent for some one
 
     Args:
@@ -42,14 +45,21 @@ async def request_agent(prompt: str, role:str, agent: AgentMember, boss_id: str)
     """
     try:
         if agent.recruiter != None:
-            await agent.recruiter.create_task(task_request=TaskRequestBody(input=f"hire someone with {role} and this prompt: {prompt} for agent with id {boss_id}"))
+            await agent.recruiter.create_task(
+                task_request=TaskRequestBody(
+                    input=f"hire someone with {role} and this prompt: {prompt} for agent with id {boss_id}"
+                )
+            )
             return f"create task for recruiter to hire {role}"
         elif agent.boss != None:
-            await agent.boss.create_task(task_request=TaskRequestBody(input=f"hire someone with {role} and this prompt: {prompt} for agent with id {boss_id}"))
+            await agent.boss.create_task(
+                task_request=TaskRequestBody(
+                    input=f"hire someone with {role} and this prompt: {prompt} for agent with id {boss_id}"
+                )
+            )
             return f"create task for boss to hire {role}"
         else:
             raise Exception("We can't hire someone ")
     except Exception as ex:
         print(ex)
         return f"can't create {role}"
-

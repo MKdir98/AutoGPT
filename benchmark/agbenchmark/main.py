@@ -109,6 +109,8 @@ def run_benchmark(
 
     pytest_args.append("--cache-clear")
     logger.debug(f"Running Pytest with args: {pytest_args}")
+    print("pytest_args")
+    print(pytest_args)
     exit_code = pytest.main(pytest_args)
 
     SingletonReportManager.clear_instance()

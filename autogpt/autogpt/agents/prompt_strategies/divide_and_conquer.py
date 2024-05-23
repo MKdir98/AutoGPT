@@ -7,11 +7,16 @@ from logging import Logger
 from typing import TYPE_CHECKING, Callable, Optional
 
 import distro
+from pydantic import Field
+
+from autogpt.agents.base import BaseAgentActionProposal
+from autogpt.models.utils import ModelWithSummary
+from autogpt.utils.exceptions import InvalidAgentResponseError
+from autogpt.core.utils.json_utils import extract_dict_from_json
 
 if TYPE_CHECKING:
     from autogpt.models.action_history import Episode
 
-from autogpt.agents.utils.exceptions import InvalidAgentResponseError
 from autogpt.config import AIDirectives, AIProfile
 from autogpt.core.configuration.schema import SystemConfiguration, UserConfigurable
 from autogpt.core.prompting import (
@@ -25,8 +30,27 @@ from autogpt.core.resource.model_providers.schema import (
     CompletionModelFunction,
 )
 from autogpt.core.utils.json_schema import JSONSchema
-from autogpt.json_utils.utilities import extract_dict_from_response
 from autogpt.prompts.utils import format_numbered_list, indent
+
+
+class AssistantThoughts(ModelWithSummary):
+    observations: str = Field(
+        ..., description="Relevant observations from your last action (if any)"
+    )
+    text: str = Field(..., description="Thoughts")
+    reasoning: str = Field(..., description="Reasoning behind the thoughts")
+    self_criticism: str = Field(..., description="Constructive self-criticism")
+    plan: list[str] = Field(
+        ..., description="Short list that conveys the long-term plan"
+    )
+    speak: str = Field(..., description="Summary of thoughts, to say to user")
+
+    def summary(self) -> str:
+        return self.text
+
+
+class DivideAndConquerAgentActionProposal(BaseAgentActionProposal):
+    thoughts: AssistantThoughts
 
 
 class CommandRequest:
@@ -34,10 +58,13 @@ class CommandRequest:
     args: dict[str, str]
     user_input: str
 
-    def __init__(self, command: str, args: dict[str, str], user_input: str = "") -> None:
+    def __init__(
+        self, command: str, args: dict[str, str], user_input: str = ""
+    ) -> None:
         self.command = command
         self.args = args
         self.user_input = user_input
+
 
 class DivideAndConquerAgentPromptConfiguration(SystemConfiguration):
     DEFAULT_BODY_TEMPLATE: str = (
@@ -471,16 +498,13 @@ class DivideAndConquerAgentPromptStrategy(PromptStrategy):
                 else f" '{response.content}'"
             )
         )
-        assistant_reply_dict = extract_dict_from_response(response.content)
+        assistant_reply_dict = extract_dict_from_json(response.content)
         self.logger.debug(
             "Validating object extracted from LLM response:\n"
             f"{json.dumps(assistant_reply_dict, indent=4)}"
         )
 
-        _, errors = self.response_schema.validate_object(
-            object=assistant_reply_dict,
-            logger=self.logger,
-        )
+        _, errors = self.response_schema.validate_object(object=assistant_reply_dict)
         if errors:
             raise InvalidAgentResponseError(
                 "Validation of response failed:\n  "

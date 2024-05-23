@@ -1,22 +1,23 @@
-import copy
 import logging
 from enum import Enum
 import uuid
+import inspect
 from pydantic import BaseModel, Field
 from typing import Optional
 from datetime import datetime
-from autogpt.agent_factory.configurators import create_agent
-from autogpt.commands import COMMAND_CATEGORIES
-from autogpt.config.config import ConfigBuilder
-from autogpt.file_storage import get_storage
+from autogpt.agent_factory.profile_generator import AgentProfileGenerator
+from autogpt.agents.protocols import  CommandProvider, DirectiveProvider
+from autogpt.commands.agent_management import AgentManagementComponent
+from autogpt.commands.task_management import TaskManagementComponent
+from autogpt.config.config import Config, ConfigBuilder
+from autogpt.file_storage.base import FileStorage
+from autogpt.models.command import Command
+from autogpt.utils.exceptions import AgentException, AgentTerminated, CommandExecutionError, UnknownCommandError
 from forge.sdk.model import Task, TaskRequestBody
 from autogpt.agents.base import BaseAgentSettings
 from autogpt.agents.agent import Agent, AgentConfiguration
-from autogpt.models.command_registry import CommandRegistry
-from autogpt.models.action_history import Action, ActionResult
-from autogpt.llm.providers.openai import get_openai_command_specs
-from autogpt.agents.utils.prompt_scratchpad import PromptScratchpad
-from autogpt.core.resource.model_providers.openai import OpenAIProvider
+from autogpt.models.action_history import ActionErrorResult, ActionResult, ActionSuccessResult, EpisodicActionHistory
+from autogpt.llm.providers.openai import function_specs_from_commands
 from autogpt.core.prompting.schema import (
     ChatMessage,
     ChatPrompt,
@@ -28,11 +29,13 @@ from autogpt.core.resource.model_providers.schema import (
 )
 from autogpt.agents.prompt_strategies.divide_and_conquer import (
     CommandRequest,
+    DivideAndConquerAgentActionProposal,
     DivideAndConquerAgentPromptConfiguration,
     DivideAndConquerAgentPromptStrategy,
 )
 
 logger = logging.getLogger(__name__)
+
 
 class AgentTaskSettings(BaseModel):
     input: str
@@ -40,6 +43,7 @@ class AgentTaskSettings(BaseModel):
     parent_task_id: Optional[str]
     status: str
     sub_tasks: list[str]
+
 
 class AgentMemberSettings(BaseAgentSettings):
     config: AgentConfiguration = Field(default_factory=AgentConfiguration)
@@ -51,12 +55,16 @@ class AgentMemberSettings(BaseAgentSettings):
         )
     )
     role: str
-    initial_prompt: str
+    prompt: str
     boss_id: Optional[str]
     recruiter_id: Optional[str]
     create_agent: bool
     members: list[str]
     tasks: list[AgentTaskSettings]
+    history: EpisodicActionHistory[DivideAndConquerAgentActionProposal] = Field(
+        default_factory=EpisodicActionHistory[DivideAndConquerAgentActionProposal]
+    )
+
 
 class ProposeActionResult:
     commands: list[CommandRequest]
@@ -77,13 +85,10 @@ class CommandActionResult:
 
 
 class AgentMember(Agent):
-
-    initial_prompt: str
     boss: Optional["AgentMember"]
     recruiter: Optional["AgentMember"]
     tasks: list["AgentTask"]
     members: list["AgentMember"]
-    create_agent: bool
     group: "AgentGroup"
 
     def recursive_assign_group(self, group: "AgentGroup"):
@@ -93,9 +98,9 @@ class AgentMember(Agent):
 
     def get_list_of_all_your_team_members(self) -> list["AgentMember"]:
         members = []
-        print("self: " +  self.state.agent_id)
+        print("self: " + self.state.agent_id)
         for member in self.members:
-            print("member: " +  member.state.agent_id)
+            print("member: " + member.state.agent_id)
             members.extend(member.get_list_of_all_your_team_members())
         members.append(self)
         return members
@@ -113,64 +118,30 @@ class AgentMember(Agent):
 
     def __init__(
         self,
-        llm_provider: ChatModelProvider,
         settings: AgentMemberSettings,
+        llm_provider: ChatModelProvider,
+        file_storage: FileStorage,
+        legacy_config: Config,
         boss: Optional["AgentMember"] = None,
         recruiter: Optional["AgentMember"] = None,
-        tasks: list['AgentTask'] = [],
-        members: list['AgentMember'] = [],
+        tasks: list["AgentTask"] = [],
+        members: list["AgentMember"] = [],
     ):
-        config = ConfigBuilder.build_config_from_env()
-        config.logging.plain_console_output = True
+        super().__init__(settings, llm_provider, file_storage, legacy_config)
 
-        config.continuous_mode = False
-        config.continuous_limit = 20
-        config.noninteractive_mode = True
-        config.memory_backend = "no_memory"
-
-        file_storage = get_storage(
-            config.file_storage_backend, root_path="data_group", restrict_to_root=False
-        )
-        file_storage.initialize()
-        commands = [
-            "autogpt.commands.create_task",
-            "autogpt.commands.execute_code",
-            "autogpt.commands.file_operations",
-            "autogpt.commands.user_interaction",
-            "autogpt.commands.web_search",
-            "autogpt.commands.web_selenium",
-            "autogpt.commands.finish_task",
-            "autogpt.commands.image_gen",
-        ]
-        if create_agent:
-            commands.insert(0, "autogpt.commands.create_agent")
-        else:
-            commands.insert(0, "autogpt.commands.request_agent")
-
-        command_registry = CommandRegistry.with_command_modules(commands, config)
-
-        hugging_chat_settings = OpenAIProvider.default_settings.copy(deep=True)
-        hugging_chat_settings.credentials = config.openai_credentials
-
-        if not settings.agent_id:
-            settings.agent_id = str(uuid.uuid4())
-
-        super().__init__(settings, llm_provider, command_registry, file_storage, config)
-
-        self.initial_prompt = settings.initial_prompt
         self.boss = boss
         self.recruiter = recruiter
         self.tasks = tasks
         self.members = members
-        self.create_agent = settings.create_agent
         self.prompt_strategy = DivideAndConquerAgentPromptStrategy(
             configuration=settings.prompt_config,
             logger=logger,
         )
+        self.task_management_component = TaskManagementComponent(self)
+        self.agent_management_component = AgentManagementComponent(self)
 
-    def build_prompt(
+    async def build_prompt(
         self,
-        scratchpad: PromptScratchpad,
         tasks: list["AgentTask"],
         extra_commands: Optional[list[CompletionModelFunction]] = None,
         extra_messages: Optional[list[ChatMessage]] = None,
@@ -184,32 +155,26 @@ class AgentMember(Agent):
             extra_commands: Additional commands that the agent has access to.
             extra_messages: Additional messages to include in the prompt.
         """
-        if not extra_commands:
-            extra_commands = []
-        if not extra_messages:
-            extra_messages = []
+        # Get directives
+        resources = await self.run_pipeline(DirectiveProvider.get_resources)
+        constraints = await self.run_pipeline(DirectiveProvider.get_constraints)
+        best_practices = await self.run_pipeline(DirectiveProvider.get_best_practices)
 
-        # Apply additions from plugins
-        for plugin in self.config.plugins:
-            if not plugin.can_handle_post_prompt():
-                continue
-            plugin.post_prompt(scratchpad)
-        ai_directives = self.directives.copy(deep=True)
-        ai_directives.resources += scratchpad.resources
-        ai_directives.constraints += scratchpad.constraints
-        ai_directives.best_practices += scratchpad.best_practices
-        extra_commands += list(scratchpad.commands.values())
+        directives = self.state.directives.copy(deep=True)
+        directives.resources += resources
+        directives.constraints += constraints
+        directives.best_practices += best_practices
+
+        # Get commands
+        self.commands = await self.run_pipeline(CommandProvider.get_commands)
 
         prompt = self.prompt_strategy.build_prompt(
             include_os_info=True,
             tasks=tasks,
             agent_member=self,
             ai_profile=self.ai_profile,
-            ai_directives=ai_directives,
-            commands=get_openai_command_specs(
-                self.command_registry.list_available_commands(self)
-            )
-            + extra_commands,
+            ai_directives=directives,
+            commands=function_specs_from_commands(self.commands),
             event_history=self.event_history,
             max_prompt_tokens=self.send_token_limit,
             count_tokens=lambda x: self.llm_provider.count_tokens(x, self.llm.name),
@@ -223,28 +188,42 @@ class AgentMember(Agent):
         return prompt
 
     async def execute_commands(
-        self, commands: list["CommandRequest"]
+        self, commands: list[CommandRequest]
     ) -> list[CommandActionResult]:
         results = []
 
         for command in commands:
-            self.event_history.register_action(
-                Action(
-                    name=command.command,
-                    args=command.args,
-                    reasoning="",
-                )
-            )
-            result = await self.execute(
-                command_name=command.command,
-                command_args=command.args,
-                user_input=command.user_input,
-            )
-            results.append(
-                CommandActionResult(action_result=result, command=command.command)
-            )
+            # self.event_history.register_action(
+            #     Action(
+            #         name=command.command,
+            #         args=command.args,
+            #         reasoning="",
+            #     )
+            # )
 
+            command_template = self._get_command(command.command)
+            try:
+                result = command_template(**command.args)
+                if inspect.isawaitable(result):
+                    result = await result
+                results.append(
+                    CommandActionResult(action_result=ActionSuccessResult(outputs=result), command=command.command)
+                )
+            except Exception as e:
+                results.append(
+                    CommandActionResult(action_result=ActionErrorResult(reason=str(e)), command=command.command)
+                )
         return results
+
+
+    def _get_command(self, command_name: str) -> Command:
+        for command in reversed(self.commands):
+            if command_name in command.names:
+                return command
+
+        raise UnknownCommandError(
+            f"Cannot execute command '{command_name}': unknown command."
+        )
 
     async def create_task(self, task_request: TaskRequestBody):
         try:
@@ -291,28 +270,21 @@ class AgentMember(Agent):
 
         commands: list[CommandRequest] = []
         if current_tasks:
-            self._prompt_scratchpad = PromptScratchpad()
             logger.info(f"tasks: {str(current_tasks)}")
-            prompt = self.build_prompt(
-                scratchpad=self._prompt_scratchpad, tasks=current_tasks
-            )
+            prompt = await self.build_prompt(tasks=current_tasks)
             result = await self.llm_provider.create_chat_completion(
                 prompt.messages,
                 model_name=self.config.smart_llm,
                 functions=prompt.functions,
-                completion_parser=lambda r: self.parse_and_process_response(
-                    r,
-                    prompt,
-                    scratchpad=self._prompt_scratchpad,
-                ),
+                completion_parser=lambda r: self.parse_and_process_response(r),
             )
             print(commands)
             commands = result.parsed_result
-        await self.save_state()
+        await self.file_manager.save_state()
         return commands
 
     def parse_and_process_response(
-        self, llm_response: AssistantChatMessage, *args, **kwargs
+        self, llm_response: AssistantChatMessage
     ) -> list[CommandRequest]:
         result = self.prompt_strategy.parse_response_content(llm_response)
         return result
@@ -331,3 +303,110 @@ class AgentTask(Task):
     status: AgentTaskStatus
     parent_task: Optional["AgentTask"]
     sub_tasks: list["AgentTask"]
+
+
+async def create_agent_member(
+    state: AgentMemberSettings,
+    app_config: Config,
+    file_storage: FileStorage,
+    llm_provider: ChatModelProvider,
+    boss: Optional["AgentMember"] = None,
+    recruiter: Optional["AgentMember"] = None,
+) -> "AgentMember":
+    agent_member = AgentMember(
+        settings=state,
+        boss=boss,
+        recruiter=recruiter,
+        llm_provider=llm_provider,
+        file_storage=file_storage,
+        legacy_config=app_config,
+    )
+
+    if boss:
+        boss.members.append(agent_member)
+        boss.group.reload_members()
+
+    await agent_member.file_manager.save_state()
+    return agent_member
+
+
+async def generate_agent_settings_for_task(
+    role: str,
+    prompt: str,
+    boss_id: Optional[str],
+    recruiter_id: Optional[str],
+    tasks: list[AgentTaskSettings],
+    members: list[str],
+    create_agent: bool,
+    llm_provider: ChatModelProvider,
+    app_config,
+) -> AgentMemberSettings:
+    agent_profile_generator = AgentProfileGenerator(
+        **AgentProfileGenerator.default_configuration.dict()  # HACK
+    )
+
+    profile_prompt = agent_profile_generator.build_prompt(prompt)
+    output = (
+        await llm_provider.create_chat_completion(
+            profile_prompt.messages,
+            model_name=app_config.smart_llm,
+            functions=profile_prompt.functions,
+        )
+    ).response
+
+    ai_profile, ai_directives = agent_profile_generator.parse_response_content(output)
+
+    return AgentMemberSettings(
+        agent_id=str(uuid.uuid4()),
+        role=role,
+        prompt=prompt,
+        boss_id=boss_id,
+        recruiter_id=recruiter_id,
+        tasks=tasks,
+        members=members,
+        create_agent=create_agent,
+        name=Agent.default_settings.name,
+        description=Agent.default_settings.description,
+        ai_profile=ai_profile,
+        directives=ai_directives,
+        config=AgentConfiguration(
+            fast_llm=app_config.fast_llm,
+            smart_llm=app_config.smart_llm,
+            allow_fs_access=not app_config.restrict_to_workspace,
+            use_functions_api=app_config.openai_functions,
+        ),
+        history=[],
+    )
+
+
+async def create_agent_member_from_task(
+    role: str,
+    prompt: str,
+    file_storage: FileStorage,
+    llm_provider: ChatModelProvider,
+    boss_id=None,
+):
+    config = ConfigBuilder.build_config_from_env()
+    config.logging.plain_console_output = True
+    config.continuous_mode = False
+    config.continuous_limit = 20
+    config.noninteractive_mode = True
+    config.memory_backend = "no_memory"
+    settings = await generate_agent_settings_for_task(
+        role=role,
+        prompt=prompt,
+        boss_id=boss_id,
+        recruiter_id=None,
+        tasks=[],
+        members=[],
+        create_agent=True,
+        app_config=config,
+        llm_provider=llm_provider,
+    )
+    agent_member = await create_agent_member(
+        file_storage=file_storage,
+        app_config=config,
+        state=settings,
+        llm_provider=llm_provider,
+    )
+    return agent_member

@@ -13,6 +13,7 @@ from pathlib import Path
 from types import FrameType
 from typing import TYPE_CHECKING, Optional
 
+from click import prompt
 from colorama import Fore, Style
 from forge.agent_protocol.database import AgentDB
 from forge.components.code_executor import (
@@ -399,15 +400,6 @@ async def run_auto_gpt_server(
         f"${round(sum(b.total_cost for b in server._task_budgets.values()), 2)}"
     )
 
-def _configure_openai_provider(config: Config) -> OpenAIProvider:
-    """Create a configured OpenAIProvider object.
-
-# def _configure_llm_provider(config: Config) -> MultiProvider:
-#     multi_provider = MultiProvider()
-#     for model in [config.smart_llm, config.fast_llm]:
-#         # Ensure model providers for configured LLMs are available
-#         multi_provider.get_model_provider(model)
-#     return multi_provider
 
 def _configure_gpt_4_free_provider(config: Config) -> GPT4FreeProvider:
     """Create a configured HuggingChatProvider object.
@@ -755,6 +747,9 @@ def print_assistant_thoughts(
         else thoughts
     )
     print_attribute(
+        f"{ai_name.upper()} THOUGHTS", assistant_thoughts_text, title_color=Fore.YELLOW
+    )
+    print_attribute(
         f"{ai_name.upper()} THOUGHTS", thoughts_text, title_color=Fore.YELLOW
     )
 
@@ -808,24 +803,11 @@ async def run_multi_agents_auto_gpt(
     ai_settings: Optional[Path] = None,
     prompt_settings: Optional[Path] = None,
     skip_reprompt: bool = False,
-    speak: bool = False,
-    debug: bool = False,
-    log_level: Optional[str] = None,
-    log_format: Optional[str] = None,
-    log_file_format: Optional[str] = None,
     gpt3only: bool = False,
     gpt4only: bool = False,
     browser_name: Optional[str] = None,
     allow_downloads: bool = False,
     skip_news: bool = False,
-    workspace_directory: Optional[Path] = None,
-    install_plugin_deps: bool = False,
-    override_ai_name: Optional[str] = None,
-    override_ai_role: Optional[str] = None,
-    resources: Optional[list[str]] = None,
-    constraints: Optional[list[str]] = None,
-    best_practices: Optional[list[str]] = None,
-    override_directives: bool = False,
     member_descriptions: list[str] = [],
 ):
     # Set up configuration
@@ -840,21 +822,13 @@ async def run_multi_agents_auto_gpt(
     )
     file_storage.initialize()
 
-    # TODO: fill in llm values here
-    assert_config_has_openai_api_key(config)
-
-    apply_overrides_to_config(
+    await apply_overrides_to_config(
         config=config,
         continuous=continuous,
         continuous_limit=continuous_limit,
         ai_settings_file=ai_settings,
         prompt_settings_file=prompt_settings,
         skip_reprompt=skip_reprompt,
-        speak=speak,
-        debug=debug,
-        log_level=log_level,
-        log_format=log_format,
-        log_file_format=log_file_format,
         gpt3only=gpt3only,
         gpt4only=gpt4only,
         browser_name=browser_name,
@@ -884,31 +858,6 @@ async def run_multi_agents_auto_gpt(
                 msg=markdown_to_ansi_style(line),
             )
 
-    if not config.skip_news:
-        print_motd(config, logger)
-        print_git_branch_info(logger)
-        print_python_version_info(logger)
-        print_attribute("Smart LLM", config.smart_llm)
-        print_attribute("Fast LLM", config.fast_llm)
-        print_attribute("Browser", config.selenium_web_browser)
-        if config.continuous_mode:
-            print_attribute("Continuous Mode", "ENABLED", title_color=Fore.YELLOW)
-            if continuous_limit:
-                print_attribute("Continuous Limit", config.continuous_limit)
-        if config.tts_config.speak_mode:
-            print_attribute("Speak Mode", "ENABLED")
-        if ai_settings:
-            print_attribute("Using AI Settings File", ai_settings)
-        if prompt_settings:
-            print_attribute("Using Prompt Settings File", prompt_settings)
-        if config.allow_downloads:
-            print_attribute("Native Downloading", "ENABLED")
-
-    if install_plugin_deps:
-        install_plugin_dependencies()
-
-    config.plugins = scan_plugins(config)
-    configure_chat_plugins(config)
     agent_manager = AgentManager(file_storage)
     existing_agents = agent_manager.list_agents()
     load_existing_agent = ""
@@ -917,7 +866,7 @@ async def run_multi_agents_auto_gpt(
             "Existing agent groups\n---------------\n"
             + "\n".join(f"{i} - {id}" for i, id in enumerate(existing_agents, 1))
         )
-        load_existing_agent = await clean_input(
+        load_existing_agent = clean_input(
             config,
             "Enter the number or name of the agent group to run,"
             " or hit enter to create a new one:",
@@ -992,20 +941,22 @@ async def run_multi_agents_auto_gpt(
     # Set up a new Agent Group #
     ######################
     if not agent_group:
-        task = await clean_input(
-            config,
-            "Enter the task that you want AutoGPT to execute,"
-            " with as much detail as possible:",
-        )
+        # task = clean_input(
+        #     config,
+        #     "Enter the task that you want AutoGPT to execute,"
+        #     " with as much detail as possible:",
+        # )
+
+        task = "Create a group of developers work on autogpt project in github and get it better"
 
         agent_members = []
         if not len(member_descriptions) == 0:
             for description in member_descriptions:
                 description_params = description.split(":")
-                agent_member = await create_agent_member(
+                agent_member = await create_agent_member_from_task(
                     role=description_params[0],
-                    initial_prompt=description_params[1],
-                    create_agent=bool(description_params[2]),
+                    prompt=description_params[1],
+                    file_storage=file_storage,
                     llm_provider=llm_provider,
                 )
                 agent_members.append(agent_member)
@@ -1032,10 +983,10 @@ async def run_multi_agents_auto_gpt(
                                 agent_members[sub_member_index]
                             )
         else:
-            leader = await create_agent_member(
+            leader = await create_agent_member_from_task(
                 role="leader",
-                initial_prompt=f"someone can do {task}",
-                create_agent=True,
+                prompt=f"someone can do {task}",
+                file_storage=file_storage,
                 llm_provider=llm_provider,
             )
             agent_members.append(leader)
@@ -1144,7 +1095,6 @@ async def run_interaction_loop_for_agent_group(
         # Print the assistant's thoughts and the next command to the user.
         agent_group.print_state()
         update_user_in_group_mode(commands_result)
-
 
         ##################
         # Get user input #
