@@ -254,6 +254,7 @@ def serve(
         install_plugin_deps=install_plugin_deps,
     )
 
+
 @cli.command()
 @click.option("-c", "--continuous", is_flag=True, help="Enable Continuous Mode")
 @click.option(
@@ -355,9 +356,7 @@ def serve(
     "--member-description",
     type=str,
     multiple=True,
-    help=(
-        "Add members description and detail"
-    ),
+    help=("Add members description and detail"),
 )
 @click.option(
     "--override-directives",
@@ -445,6 +444,93 @@ def run_multi_agent(
         constraints=list(constraint),
         best_practices=list(best_practice),
         override_directives=override_directives,
+        member_descriptions=list(member_description),
+    )
+
+
+@cli.command()
+@click.option("-c", "--continuous", is_flag=True, help="Enable Continuous Mode")
+@click.option(
+    "-l",
+    "--continuous-limit",
+    type=int,
+    help="Defines the number of times to run in continuous mode",
+)
+@click.option("--gpt3only", is_flag=True, help="Enable GPT3.5 Only Mode")
+@click.option("--gpt4only", is_flag=True, help="Enable GPT4 Only Mode")
+@click.option(
+    "-b",
+    "--browser-name",
+    help="Specifies which web-browser to use when using selenium to scrape the web.",
+)
+@click.option(
+    "--allow-downloads",
+    is_flag=True,
+    help="Dangerous: Allows AutoGPT to download files natively.",
+)
+@click.option(
+    "--skip-reprompt",
+    "-y",
+    is_flag=True,
+    help="Skips the re-prompting messages at the beginning of the script",
+)
+@click.option(
+    "--ai-settings",
+    "-C",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help=(
+        "Specifies which ai_settings.yaml file to use, relative to the AutoGPT"
+        " root directory. Will also automatically skip the re-prompt."
+    ),
+)
+@click.option(
+    "--prompt-settings",
+    "-P",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help="Specifies which prompt_settings.yaml file to use.",
+)
+@click.option(
+    "--member-description",
+    type=str,
+    multiple=True,
+    help=("Add members description and detail"),
+)
+@click.option(
+    "--skip-news",
+    is_flag=True,
+    help="Specifies whether to suppress the output of latest news on startup.",
+)
+def run_multi_agent(
+    continuous: bool,
+    continuous_limit: Optional[int],
+    gpt3only: bool,
+    gpt4only: bool,
+    browser_name: Optional[str],
+    allow_downloads: bool,
+    skip_news: bool,
+    skip_reprompt: bool,
+    ai_settings: Optional[Path],
+    prompt_settings: Optional[Path],
+    member_description: tuple[str],
+) -> None:
+    """
+    Sets up and runs an agent, based on the task specified by the user, or resumes an
+    existing agent.
+    """
+    # Put imports inside function to avoid importing everything when starting the CLI
+    from autogpt.app.main import run_multi_agents_auto_gpt
+
+    run_multi_agents_auto_gpt(
+        continuous=continuous,
+        continuous_limit=continuous_limit,
+        ai_settings=ai_settings,
+        prompt_settings=prompt_settings,
+        skip_reprompt=skip_reprompt,
+        gpt3only=gpt3only,
+        gpt4only=gpt4only,
+        browser_name=browser_name,
+        allow_downloads=allow_downloads,
+        skip_news=skip_news,
         member_descriptions=list(member_description),
     )
 

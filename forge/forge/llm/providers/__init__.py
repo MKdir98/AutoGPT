@@ -1,4 +1,5 @@
 from .multi import CHAT_MODELS, ModelName, MultiProvider
+from .gpt4free import GPT4FreeProvider 
 from .openai import (
     OPEN_AI_CHAT_MODELS,
     OPEN_AI_EMBEDDING_MODELS,

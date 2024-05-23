@@ -1,24 +1,23 @@
 from g4f.client import Client
-from g4f.models import DeepInfra
+from g4f.models import HuggingChat
 import json
 import traceback
 import enum
 import functools
 import logging
-import math
 import os
 import time
 from pathlib import Path
 from typing import Callable, Optional, ParamSpec, TypeVar
-import asyncio
 
 import tiktoken
 import yaml
 from pydantic import SecretStr
 
-from autogpt.core.configuration import Configurable, UserConfigurable
-from autogpt.core.resource.model_providers.schema import (
-    AssistantChatMessageDict,
+from forge.models.config import Configurable, UserConfigurable
+from forge.models.providers import Embedding
+
+from .schema import (
     AssistantChatMessage,
     AssistantToolCallDict,
     ChatMessage,
@@ -26,9 +25,7 @@ from autogpt.core.resource.model_providers.schema import (
     ChatModelProvider,
     ChatModelResponse,
     CompletionModelFunction,
-    Embedding,
     EmbeddingModelInfo,
-    EmbeddingModelProvider,
     EmbeddingModelResponse,
     ModelProviderBudget,
     ModelProviderConfiguration,
@@ -36,10 +33,8 @@ from autogpt.core.resource.model_providers.schema import (
     ModelProviderName,
     ModelProviderService,
     ModelProviderSettings,
-    ModelProviderUsage,
     ModelTokenizer,
 )
-from autogpt.core.utils.json_schema import JSONSchema
 
 _T = TypeVar("_T")
 _P = ParamSpec("_P")
@@ -345,54 +340,34 @@ class Gpt4FreeCredentials(ModelProviderCredentials):
             return {"deployment_id": deployment_id}
 
 
-
-class Gpt4FreeSettings(ModelProviderSettings):
-    configuration: Gpt4FreeConfiguration
-    credentials: Optional[Gpt4FreeCredentials]
-    budget: ModelProviderBudget
-
-
 class GPT4FreeProvider(
-    Configurable[Gpt4FreeSettings], ChatModelProvider, EmbeddingModelProvider
+    Configurable[ModelProviderSettings], ChatModelProvider
 ):
     async def get_available_models(self) -> list[ChatModelInfo]:
         return list(GPT_4_FREE_CHAT_MODELS.values())
 
-    default_settings = Gpt4FreeSettings(
+    default_settings = ModelProviderSettings(
         name="GPT_4_FREE_provider",
         description="Provides access to Gpt4Free's API.",
-        configuration=Gpt4FreeConfiguration(
-            retries_per_request=10,
+        configuration=ModelProviderConfiguration(
+            retries_per_request=7,
         ),
-        credentials=None,
         budget=ModelProviderBudget(),
     )
 
-    _configuration: Gpt4FreeConfiguration
-    _settings: Gpt4FreeSettings
-    _credentials: Gpt4FreeCredentials
     _budget: ModelProviderBudget
+
+    _provider_instances: dict[ModelProviderName, ChatModelProvider]
 
     def __init__(
         self,
-        settings: Gpt4FreeSettings,
-        logger: logging.Logger,
+        settings: Optional[ModelProviderSettings] = None,
+        logger: Optional[logging.Logger] = None,
     ):
-        self._configuration = settings.configuration
-        self._credentials = settings.credentials
-        self._budget = settings.budget
-        self._settings = self.default_settings
+        super(GPT4FreeProvider, self).__init__(settings=settings, logger=logger)
+        self._budget = self._settings.budget or ModelProviderBudget()
 
-        self._logger = logger
-        self.chatbot = None
-        # retry_handler = _Gpt4FreeRetryHandler(
-        #     logger=self._logger,
-        #     num_retries=self._configuration.retries_per_request,
-        # )
-
-        # self._create_chat_completion = retry_handler(_create_chat_completion)
-        # self._create_embedding = retry_handler(_create_embedding)
-
+        self._provider_instances = {}
     def get_token_limit(self, model_name: str) -> int:
         """Get the token limit for a given model."""
         return GPT_4_FREE_MODELS[model_name].max_tokens
@@ -496,11 +471,13 @@ class GPT4FreeProvider(
                 nest_asyncio.apply()
                 client = Client()
                 gptResponse = client.chat.completions.create(
-                    model="llama3-70b", messages=json_messages
+                    model="llama3-70b", messages=json_messages,
+                    # provider=HuggingChat
                 )
                 response = str(gptResponse.choices[0].message.content)
                 # print("response")
                 print(response)
+                response = response.replace("\x00", "")
                 if "```" in response:
                     response_text = response.replace("```", "")
                     if "{" in response_text and "[" in response_text:
@@ -546,14 +523,13 @@ class GPT4FreeProvider(
                         parsed_result=parsed_response,
                         **response_args,
                     )
-                    return response
                 except Exception as e:
                     traceback.print_exc()
                     self._logger.warning(f"Parsing attempt #{attempts} failed: {e}")
                     self._logger.debug(
                         f"Parsing failed on response: '''{response_text}'''"
                     )
-                    if attempts < self._configuration.fix_failed_parse_tries:
+                    if attempts < self._configuration.retries_per_request:
                         model_prompt.append(
                             ChatMessage.system(
                                 f"your json is wrong. please fix it and send it again. just send json (with no saying sorry or somehitng like that) ERROR PARSING YOUR RESPONSE:\n\n{e}"

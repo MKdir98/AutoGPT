@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 from pathlib import Path
 
+from autogpt.agents.agent_member import AgentMemberSettings
 from forge.file_storage.base import FileStorage
 
 from autogpt.agents.agent import AgentSettings
@@ -32,9 +33,9 @@ class AgentManager:
         for dir in self.file_manager.list_folders():
             state_file = dir / "state.json"
             if self.file_manager.exists(state_file):
-                with open(state_file, 'r') as f:
+                with open(state_file, "r") as f:
                     state = json.load(f)
-                    if state.get('boss_id') is None:
+                    if state.get("boss_id") is None:
                         agent_dirs.append(dir.name)
         return agent_dirs
 

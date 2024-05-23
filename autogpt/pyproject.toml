@@ -20,6 +20,10 @@ autogpt = "autogpt.app.cli:cli"
 multi_agent = "autogpt.app.cli:run_multi_agent"
 serve = "autogpt.app.cli:serve"
 
+[tool.pyright]
+pythonPath = ["../forge"]
+extraPaths = ["../forge"]
+
 
 [tool.poetry.dependencies]
 python = "^3.10"

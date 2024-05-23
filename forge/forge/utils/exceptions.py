@@ -67,6 +67,7 @@ class AgentFinished(AgentTerminated):
 
 class TaskFinished(Exception):
     """The task self-terminated"""
+
     def __init__(self, task_id: str, reason: str) -> None:
         self.task_id = task_id
         self.reason = reason

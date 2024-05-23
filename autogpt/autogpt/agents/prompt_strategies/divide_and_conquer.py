@@ -1,32 +1,47 @@
 from __future__ import annotations
-
 import json
+from logging import Logger
 import platform
 import re
-from logging import Logger
-from typing import TYPE_CHECKING, Callable, Optional
+from typing import Callable, Optional, TYPE_CHECKING
 
 import distro
+from pydantic import Field
 
-if TYPE_CHECKING:
-    from autogpt.models.action_history import Episode
-
-from autogpt.agents.utils.exceptions import InvalidAgentResponseError
-from autogpt.config import AIDirectives, AIProfile
-from autogpt.core.configuration.schema import SystemConfiguration, UserConfigurable
-from autogpt.core.prompting import (
-    ChatPrompt,
-    LanguageModelClassification,
-    PromptStrategy,
-)
-from autogpt.core.resource.model_providers.schema import (
+from forge.config.ai_directives import AIDirectives
+from forge.config.ai_profile import AIProfile
+from forge.json.parsing import extract_dict_from_json
+from forge.llm.prompting import ChatPrompt, LanguageModelClassification, PromptStrategy
+from forge.llm.prompting.utils import format_numbered_list
+from forge.llm.providers.schema import (
     AssistantChatMessage,
     ChatMessage,
     CompletionModelFunction,
 )
-from autogpt.core.utils.json_schema import JSONSchema
-from autogpt.json_utils.utilities import extract_dict_from_response
-from autogpt.prompts.utils import format_numbered_list, indent
+from forge.models.action import ActionProposal
+from forge.models.config import SystemConfiguration, UserConfigurable
+from forge.models.json_schema import JSONSchema
+from forge.models.utils import ModelWithSummary
+from forge.utils.exceptions import InvalidAgentResponseError
+
+class AssistantThoughts(ModelWithSummary):
+    observations: str = Field(
+        ..., description="Relevant observations from your last action (if any)"
+    )
+    text: str = Field(..., description="Thoughts")
+    reasoning: str = Field(..., description="Reasoning behind the thoughts")
+    self_criticism: str = Field(..., description="Constructive self-criticism")
+    plan: list[str] = Field(
+        ..., description="Short list that conveys the long-term plan"
+    )
+    speak: str = Field(..., description="Summary of thoughts, to say to user")
+
+    def summary(self) -> str:
+        return self.text
+
+
+class DivideAndConquerAgentActionProposal(ActionProposal):
+    thoughts: AssistantThoughts
 
 
 class CommandRequest:
@@ -34,10 +49,13 @@ class CommandRequest:
     args: dict[str, str]
     user_input: str
 
-    def __init__(self, command: str, args: dict[str, str], user_input: str = "") -> None:
+    def __init__(
+        self, command: str, args: dict[str, str], user_input: str = ""
+    ) -> None:
         self.command = command
         self.args = args
         self.user_input = user_input
+
 
 class DivideAndConquerAgentPromptConfiguration(SystemConfiguration):
     DEFAULT_BODY_TEMPLATE: str = (
@@ -471,16 +489,13 @@ class DivideAndConquerAgentPromptStrategy(PromptStrategy):
                 else f" '{response.content}'"
             )
         )
-        assistant_reply_dict = extract_dict_from_response(response.content)
+        assistant_reply_dict = extract_dict_from_json(response.content)
         self.logger.debug(
             "Validating object extracted from LLM response:\n"
             f"{json.dumps(assistant_reply_dict, indent=4)}"
         )
 
-        _, errors = self.response_schema.validate_object(
-            object=assistant_reply_dict,
-            logger=self.logger,
-        )
+        _, errors = self.response_schema.validate_object(object=assistant_reply_dict)
         if errors:
             raise InvalidAgentResponseError(
                 "Validation of response failed:\n  "

@@ -50,6 +50,7 @@ tiktoken = "^0.5.0"
 toml = "^0.10.2"
 uvicorn = "^0.23.2"
 webdriver-manager = "^4.0.1"
+pyautogui = "^0.9.54"
 
 [tool.poetry.extras]
 benchmark = ["agbenchmark"]

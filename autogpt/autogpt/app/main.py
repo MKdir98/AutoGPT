@@ -22,7 +22,7 @@ from forge.components.code_executor import (
 from forge.config.ai_profile import AIProfile
 from forge.config.config import Config, ConfigBuilder, assert_config_has_openai_api_key
 from forge.file_storage import FileStorageBackendName, get_storage
-from forge.llm.providers import MultiProvider
+from forge.llm.providers import GPT4FreeProvider
 from forge.logging.config import configure_logging
 from forge.logging.utils import print_attribute, speak
 from forge.models.action import ActionInterruptedByHuman, ActionProposal
@@ -33,6 +33,7 @@ from forge.utils.exceptions import AgentTerminated, InvalidAgentResponseError
 from autogpt.agent_factory.configurators import configure_agent_with_state, create_agent
 from autogpt.agent_factory.profile_generator import generate_agent_profile_for_task
 from autogpt.agents.agent_manager import AgentManager
+from autogpt.agents.agent_member import ProposeActionResult, AgentTaskSettings
 from autogpt.agents.prompt_strategies.one_shot import AssistantThoughts
 
 if TYPE_CHECKING:
@@ -50,7 +51,9 @@ from .utils import (
     print_motd,
     print_python_version_info,
 )
-
+from autogpt.agents.agent_member import create_agent_member_from_task
+from autogpt.agents.agent_group import AgentGroup
+from forge.agent_protocol.models import TaskRequestBody
 
 @coroutine
 async def run_auto_gpt(
@@ -399,15 +402,6 @@ async def run_auto_gpt_server(
         f"${round(sum(b.total_cost for b in server._task_budgets.values()), 2)}"
     )
 
-def _configure_openai_provider(config: Config) -> OpenAIProvider:
-    """Create a configured OpenAIProvider object.
-
-# def _configure_llm_provider(config: Config) -> MultiProvider:
-#     multi_provider = MultiProvider()
-#     for model in [config.smart_llm, config.fast_llm]:
-#         # Ensure model providers for configured LLMs are available
-#         multi_provider.get_model_provider(model)
-#     return multi_provider
 
 def _configure_gpt_4_free_provider(config: Config) -> GPT4FreeProvider:
     """Create a configured HuggingChatProvider object.
@@ -755,6 +749,9 @@ def print_assistant_thoughts(
         else thoughts
     )
     print_attribute(
+        f"{ai_name.upper()} THOUGHTS", assistant_thoughts_text, title_color=Fore.YELLOW
+    )
+    print_attribute(
         f"{ai_name.upper()} THOUGHTS", thoughts_text, title_color=Fore.YELLOW
     )
 
@@ -808,24 +805,11 @@ async def run_multi_agents_auto_gpt(
     ai_settings: Optional[Path] = None,
     prompt_settings: Optional[Path] = None,
     skip_reprompt: bool = False,
-    speak: bool = False,
-    debug: bool = False,
-    log_level: Optional[str] = None,
-    log_format: Optional[str] = None,
-    log_file_format: Optional[str] = None,
     gpt3only: bool = False,
     gpt4only: bool = False,
     browser_name: Optional[str] = None,
     allow_downloads: bool = False,
     skip_news: bool = False,
-    workspace_directory: Optional[Path] = None,
-    install_plugin_deps: bool = False,
-    override_ai_name: Optional[str] = None,
-    override_ai_role: Optional[str] = None,
-    resources: Optional[list[str]] = None,
-    constraints: Optional[list[str]] = None,
-    best_practices: Optional[list[str]] = None,
-    override_directives: bool = False,
     member_descriptions: list[str] = [],
 ):
     # Set up configuration
@@ -840,26 +824,12 @@ async def run_multi_agents_auto_gpt(
     )
     file_storage.initialize()
 
-    # TODO: fill in llm values here
-    assert_config_has_openai_api_key(config)
-
-    apply_overrides_to_config(
+    await apply_overrides_to_config(
         config=config,
-        continuous=continuous,
-        continuous_limit=continuous_limit,
-        ai_settings_file=ai_settings,
-        prompt_settings_file=prompt_settings,
-        skip_reprompt=skip_reprompt,
-        speak=speak,
-        debug=debug,
-        log_level=log_level,
-        log_format=log_format,
-        log_file_format=log_file_format,
         gpt3only=gpt3only,
         gpt4only=gpt4only,
         browser_name=browser_name,
         allow_downloads=allow_downloads,
-        skip_news=skip_news,
     )
 
     # Set up logging module
@@ -884,31 +854,6 @@ async def run_multi_agents_auto_gpt(
                 msg=markdown_to_ansi_style(line),
             )
 
-    if not config.skip_news:
-        print_motd(config, logger)
-        print_git_branch_info(logger)
-        print_python_version_info(logger)
-        print_attribute("Smart LLM", config.smart_llm)
-        print_attribute("Fast LLM", config.fast_llm)
-        print_attribute("Browser", config.selenium_web_browser)
-        if config.continuous_mode:
-            print_attribute("Continuous Mode", "ENABLED", title_color=Fore.YELLOW)
-            if continuous_limit:
-                print_attribute("Continuous Limit", config.continuous_limit)
-        if config.tts_config.speak_mode:
-            print_attribute("Speak Mode", "ENABLED")
-        if ai_settings:
-            print_attribute("Using AI Settings File", ai_settings)
-        if prompt_settings:
-            print_attribute("Using Prompt Settings File", prompt_settings)
-        if config.allow_downloads:
-            print_attribute("Native Downloading", "ENABLED")
-
-    if install_plugin_deps:
-        install_plugin_dependencies()
-
-    config.plugins = scan_plugins(config)
-    configure_chat_plugins(config)
     agent_manager = AgentManager(file_storage)
     existing_agents = agent_manager.list_agents()
     load_existing_agent = ""
@@ -917,8 +862,7 @@ async def run_multi_agents_auto_gpt(
             "Existing agent groups\n---------------\n"
             + "\n".join(f"{i} - {id}" for i, id in enumerate(existing_agents, 1))
         )
-        load_existing_agent = await clean_input(
-            config,
+        load_existing_agent = clean_input(
             "Enter the number or name of the agent group to run,"
             " or hit enter to create a new one:",
         )
@@ -940,7 +884,7 @@ async def run_multi_agents_auto_gpt(
     if load_existing_agent:
         agent_state = None
         while True:
-            answer = await clean_input(config, "Resume? [Y/n]")
+            answer = clean_input("Resume? [Y/n]")
             if answer == "" or answer.lower() == "y":
                 agent_state = agent_manager.load_agent_member_state(load_existing_agent)
                 break
@@ -992,20 +936,22 @@ async def run_multi_agents_auto_gpt(
     # Set up a new Agent Group #
     ######################
     if not agent_group:
-        task = await clean_input(
-            config,
-            "Enter the task that you want AutoGPT to execute,"
-            " with as much detail as possible:",
-        )
+        # task = clean_input(
+        #     config,
+        #     "Enter the task that you want AutoGPT to execute,"
+        #     " with as much detail as possible:",
+        # )
+
+        task = "Create a group of developers work on autogpt project in github and get it better"
 
         agent_members = []
         if not len(member_descriptions) == 0:
             for description in member_descriptions:
                 description_params = description.split(":")
-                agent_member = await create_agent_member(
+                agent_member = await create_agent_member_from_task(
                     role=description_params[0],
-                    initial_prompt=description_params[1],
-                    create_agent=bool(description_params[2]),
+                    prompt=description_params[1],
+                    file_storage=file_storage,
                     llm_provider=llm_provider,
                 )
                 agent_members.append(agent_member)
@@ -1032,10 +978,10 @@ async def run_multi_agents_auto_gpt(
                                 agent_members[sub_member_index]
                             )
         else:
-            leader = await create_agent_member(
+            leader = await create_agent_member_from_task(
                 role="leader",
-                initial_prompt=f"someone can do {task}",
-                create_agent=True,
+                prompt=f"someone can do {task}",
+                file_storage=file_storage,
                 llm_provider=llm_provider,
             )
             agent_members.append(leader)
@@ -1145,7 +1091,6 @@ async def run_interaction_loop_for_agent_group(
         agent_group.print_state()
         update_user_in_group_mode(commands_result)
 
-
         ##################
         # Get user input #
         ##################
@@ -1231,19 +1176,19 @@ async def run_interaction_loop_for_agent_group(
                 command_result.agent.state.members = []
                 for member in command_result.agent.members:
                     command_result.agent.state.members.append(member.state.agent_id)
-                for task in command_result.agent.tasks:
-                    sub_tasks = []
-                    for sub_task in task.sub_tasks:
-                        sub_tasks.append(sub_task.task_id)
-                    command_result.agent.state.tasks.append(
-                        AgentTaskSettings(
-                            task_id=task.task_id,
-                            input=task.input,
-                            parent_task_id=task.parent_task_id,
-                            status=task.status.value,
-                            sub_tasks=sub_tasks,
-                        )
-                    )
+                # for task in command_result.agent.tasks:
+                #     sub_tasks = []
+                #     for sub_task in task.sub_tasks:
+                #         sub_tasks.append(sub_task.task_id)
+                #     command_result.agent.state.tasks.append(
+                #         AgentTaskSettings(
+                #             task_id=task.task_id,
+                #             input=task.input,
+                #             parent_task_id=task.parent_task_id,
+                #             status=task.status.value,
+                #             sub_tasks=sub_tasks,
+                #         )
+                #     )
                 for command_action_result in command_action_results:
                     result = command_action_result.action_result
                     command = command_action_result.command
